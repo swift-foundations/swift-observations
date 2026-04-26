@@ -74,8 +74,16 @@ extension ObservableMacro: MemberMacro {
     public static func expansion(
         of node: AttributeSyntax,
         providingMembersOf declaration: some DeclGroupSyntax,
+        conformingTo protocols: [TypeSyntax],
         in context: some MacroExpansionContext
     ) throws -> [DeclSyntax] {
+        // `conformingTo` reports the conformances requested via
+        // `@attached(extension, conformances: …)`. The member
+        // synthesis is the same regardless — we always emit
+        // `_$registrar`; the `Observable` conformance itself is added
+        // by the `ExtensionMacro` form below.
+        _ = protocols
+
         for member in declaration.memberBlock.members {
             if let varDecl = member.decl.as(VariableDeclSyntax.self),
                varDecl.bindings.contains(where: { binding in
