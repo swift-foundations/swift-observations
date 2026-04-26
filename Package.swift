@@ -54,7 +54,7 @@ let package = Package(
             name: "Observations Macros Tests",
             dependencies: [
                 "Observations Macros",
-                .product(name: "SwiftSyntaxMacrosTestSupport", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxMacrosGenericTestSupport", package: "swift-syntax"),
             ]
         ),
     ],

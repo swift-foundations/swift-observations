@@ -11,23 +11,73 @@
 // ===----------------------------------------------------------------------===//
 
 import SwiftSyntax
+import SwiftSyntaxMacroExpansion
 import SwiftSyntaxMacros
-import SwiftSyntaxMacrosTestSupport
-import XCTest
+import SwiftSyntaxMacrosGenericTestSupport
+import Testing
 
 @testable import Observations_Macros
 
-private let testMacros: [String: any Macro.Type] = [
-    "Observable": ObservableMacro.self,
-    "_ObservationTracked": ObservationTrackedMacro.self,
+// MARK: - Macro registry
+
+private let testMacros: [String: MacroSpec] = [
+    "Observable": MacroSpec(type: ObservableMacro.self),
+    "_ObservationTracked": MacroSpec(type: ObservationTrackedMacro.self),
 ]
 
-final class ObservableMacroTests: XCTestCase {
+// MARK: - Swift Testing adapter
 
-    // MARK: - Simple struct (matches the hand-authored Counter shape)
+/// Bridges `SwiftSyntaxMacrosGenericTestSupport.assertMacroExpansion`'s
+/// framework-agnostic `failureHandler` callback to Swift Testing's
+/// `Issue.record(...)`. Avoids `SwiftSyntaxMacrosTestSupport`, which
+/// pulls XCTest (and transitively Foundation).
+private func expectMacroExpansion(
+    _ originalSource: String,
+    expandedSource: String,
+    fileID: StaticString = #fileID,
+    filePath: StaticString = #filePath,
+    line: UInt = #line,
+    column: UInt = #column
+) {
+    assertMacroExpansion(
+        originalSource,
+        expandedSource: expandedSource,
+        macroSpecs: testMacros,
+        failureHandler: { failure in
+            Issue.record(
+                Comment(rawValue: failure.message),
+                sourceLocation: SourceLocation(
+                    fileID: failure.location.fileID.description,
+                    filePath: failure.location.filePath.description,
+                    line: Int(failure.location.line),
+                    column: Int(failure.location.column)
+                )
+            )
+        },
+        fileID: fileID,
+        filePath: filePath,
+        line: line,
+        column: column
+    )
+}
 
-    func test_simple_struct_expands_to_target_shape() {
-        assertMacroExpansion(
+// MARK: - Suite hierarchy
+
+extension ObservableMacro {
+    @Suite
+    struct Test {
+        @Suite struct Unit {}
+        @Suite struct `Edge Case` {}
+    }
+}
+
+// MARK: - Unit
+
+extension ObservableMacro.Test.Unit {
+
+    @Test
+    func `simple struct with two stored vars expands to target shape`() {
+        expectMacroExpansion(
             """
             @Observable
             struct Counter {
@@ -77,18 +127,17 @@ final class ObservableMacroTests: XCTestCase {
 
             extension Counter: Observable {
             }
-            """,
-            macros: testMacros
+            """
         )
     }
 
-    // MARK: - ~Copyable struct (ground rule #2 research gate)
-
-    func test_noncopyable_struct_expansion() {
-        // Verifies that `_$registrar` + `_modify` accessor synthesis
-        // composes with `~Copyable Self`. Registrar's CoW shape carries
-        // no Copyable constraint, so the conformance is admissible.
-        assertMacroExpansion(
+    @Test
+    func `noncopyable struct expansion composes with ~Copyable Self`() {
+        // Ground rule #2 research gate: confirms that `_$registrar` and
+        // `_modify` synthesis admit `~Copyable Self`. Registrar's CoW
+        // shape carries no Copyable constraint, so the conformance is
+        // valid.
+        expectMacroExpansion(
             """
             @Observable
             struct Foo: ~Copyable {
@@ -120,15 +169,13 @@ final class ObservableMacroTests: XCTestCase {
 
             extension Foo: Observable {
             }
-            """,
-            macros: testMacros
+            """
         )
     }
 
-    // MARK: - Class
-
-    func test_class_expansion() {
-        assertMacroExpansion(
+    @Test
+    func `class subject synthesizes accessors and conformance`() {
+        expectMacroExpansion(
             """
             @Observable
             class Box {
@@ -160,15 +207,13 @@ final class ObservableMacroTests: XCTestCase {
 
             extension Box: Observable {
             }
-            """,
-            macros: testMacros
+            """
         )
     }
 
-    // MARK: - Generic struct
-
-    func test_generic_struct_expansion() {
-        assertMacroExpansion(
+    @Test
+    func `generic struct preserves the type parameter in the storage peer`() {
+        expectMacroExpansion(
             """
             @Observable
             struct Box<T> {
@@ -200,15 +245,18 @@ final class ObservableMacroTests: XCTestCase {
 
             extension Box: Observable {
             }
-            """,
-            macros: testMacros
+            """
         )
     }
+}
 
-    // MARK: - Mixed let / var (only var gets accessors)
+// MARK: - Edge Case
 
-    func test_mixed_let_var_only_var_tracked() {
-        assertMacroExpansion(
+extension ObservableMacro.Test.`Edge Case` {
+
+    @Test
+    func `mixed let and var only tracks var`() {
+        expectMacroExpansion(
             """
             @Observable
             struct Counter {
@@ -242,15 +290,13 @@ final class ObservableMacroTests: XCTestCase {
 
             extension Counter: Observable {
             }
-            """,
-            macros: testMacros
+            """
         )
     }
 
-    // MARK: - Underscored properties skipped
-
-    func test_underscored_var_not_tracked() {
-        assertMacroExpansion(
+    @Test
+    func `underscore-prefixed var is not tracked`() {
+        expectMacroExpansion(
             """
             @Observable
             struct Counter {
@@ -284,8 +330,7 @@ final class ObservableMacroTests: XCTestCase {
 
             extension Counter: Observable {
             }
-            """,
-            macros: testMacros
+            """
         )
     }
 }
