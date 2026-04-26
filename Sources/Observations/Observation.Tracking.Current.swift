@@ -8,8 +8,6 @@
 //
 // See LICENSE for license information
 //
-// See LICENSE for license information
-//
 // ===----------------------------------------------------------------------===//
 
 internal import Kernel_Thread
@@ -67,16 +65,16 @@ extension Observation.Tracking {
     /// ## Why this lives here, not in swift-kernel
     ///
     /// `Kernel.Thread.Local`'s public `value: UnsafeMutableRawPointer?`
-    /// surface is necessarily unsafe — the platform layer doesn't
-    /// know payload typing. A typed wrapper localizes the `Unmanaged`
-    /// dance to one place, but the cleanest naming
-    /// (`Kernel.Thread.Local<T>`) collides with the existing untyped
-    /// `Kernel.Thread.Local` typealias at `swift-kernel`. Promoting
-    /// this to an ecosystem primitive requires renaming the existing
-    /// untyped slot (e.g., to `Kernel.Thread.Local.Raw`) — a
-    /// cross-package change deferred until other consumers exist.
-    /// For now, this private helper encapsulates the unsafe surface
-    /// for `swift-observations`.
+    /// surface is necessarily unsafe — the platform layer doesn't know
+    /// payload typing. Promoting a typed wrapper to swift-kernel as
+    /// `Kernel.Thread.Local<Payload>` requires renaming the L2 raw
+    /// classes (`ISO_9945.Kernel.Thread.Local`,
+    /// `Windows.Kernel.Thread.Local`) — they share the
+    /// `Kernel.Thread` namespace via typealias chain, so a generic
+    /// `Local<T>` at L3 collides with the untyped `Local` at L2. The
+    /// rename is a multi-package change deferred until additional
+    /// consumers exist; for now this private helper encapsulates the
+    /// unsafe surface for `swift-observations`.
     @safe
     final class _FrameLocal: @unchecked Sendable {
         let _raw: Kernel.Thread.Local
