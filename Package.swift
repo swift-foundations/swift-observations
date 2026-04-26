@@ -34,6 +34,7 @@ let package = Package(
                 .product(name: "Observation Primitives", package: "swift-observation-primitives"),
                 .product(name: "Reference Primitives", package: "swift-reference-primitives"),
                 .product(name: "Ownership Primitives", package: "swift-ownership-primitives"),
+                .product(name: "Ownership Latch Primitives", package: "swift-ownership-primitives"),
                 .product(name: "Tagged Primitives", package: "swift-tagged-primitives"),
                 "Observations Macros",
             ]
@@ -48,7 +49,10 @@ let package = Package(
         ),
         .testTarget(
             name: "Observations Tests",
-            dependencies: ["Observations"]
+            dependencies: [
+                "Observations",
+                .product(name: "Kernel Test Support", package: "swift-kernel"),
+            ]
         ),
         .testTarget(
             name: "Observations Macros Tests",

@@ -10,6 +10,7 @@
 //
 // ===----------------------------------------------------------------------===//
 
+internal import Ownership_Latch_Primitives
 internal import Synchronization
 
 /// Tracks the property reads performed by `apply` and invokes
@@ -80,82 +81,60 @@ public func withObservationTracking<R>(
     let accesses = frame.accesses
     guard !accesses.isEmpty else { return result }
 
-    // One-shot, atomic-fired box: the first didSet fires onChange,
-    // and all sibling subscriptions are unsubscribed without firing.
-    let _ = Observation.Tracking._installOneShot(
-        accesses: accesses,
-        onChange: onChange
-    )
+    Observation.Tracking._installOneShot(accesses: accesses, onChange: onChange)
 
     return result
 }
 
 extension Observation.Tracking {
-    /// Per-tracking-call shared state for the one-shot dispatch:
-    /// `fired` is set true by the winner thread; the array of
-    /// `(registrar, subscriptionID)` is consulted on fire to
-    /// unsubscribe siblings.
-    final class _OneShot: @unchecked Sendable {
-        let fired: Mutex<Bool>
-        let registrations: Mutex<[(Observation.Registrar, Observation.Subscription.ID)]>
-        let onChange: @Sendable () -> Void
-
-        init(onChange: @escaping @Sendable () -> Void) {
-            self.fired = Mutex(false)
-            self.registrations = Mutex([])
-            self.onChange = onChange
-        }
-    }
-
-    /// Subscribes a one-shot didSet handler for every recorded access
-    /// and returns a holder that the registrations close over. The
-    /// holder is captured by the per-subscription closures, not
-    /// returned to the caller — its lifetime is the lifetime of the
-    /// outstanding subscriptions.
+    /// Subscribes a one-shot didSet handler for every recorded access.
+    ///
+    /// The first didSet to fire wins via
+    /// ``Ownership/Latch/takeIfPresent()`` — its CAS atomically
+    /// transitions the latch from `.full` to `.taken`, runs the
+    /// cleanup closure (which unsubscribes every recorded
+    /// registration and invokes `onChange`), and disarms all sibling
+    /// fires. Subsequent fires see `.taken` and short-circuit to
+    /// `nil`.
+    ///
+    /// The latch and its captured cleanup closure are held alive by
+    /// the per-subscription `[latch]` captures; once all
+    /// subscriptions are unsubscribed (by the winning fire), the
+    /// captures release and the latch deinits.
     @discardableResult
     static func _installOneShot(
         accesses: [ObjectIdentifier: (registrar: Observation.Registrar, properties: Set<Observation.Property.ID>)],
         onChange: @escaping @Sendable () -> Void
-    ) -> _OneShot {
-        let oneShot = _OneShot(onChange: onChange)
+    ) -> Ownership.Latch<@Sendable () -> Void> {
+        // Subscriptions are accumulated as the loop registers them;
+        // the cleanup closure reads the list at fire-time. A fire
+        // that races the registration loop sees a partial list and
+        // unsubscribes only the registrations recorded so far —
+        // matching the existing `Mutex<[Registration]>` behavior.
+        let pending: Mutex<[(Observation.Registrar, Observation.Subscription.ID)]> = Mutex([])
 
-        var subscriptions: [(Observation.Registrar, Observation.Subscription.ID)] = []
+        let cleanup: @Sendable () -> Void = {
+            let ids = pending.withLock { $0 }
+            for (registrar, id) in ids {
+                registrar.unsubscribe(id)
+            }
+            onChange()
+        }
+
+        let latch = Ownership.Latch<@Sendable () -> Void>(cleanup)
+
         for (_, value) in accesses {
             let registrar = value.registrar
             let properties = value.properties
-
             let id = registrar.subscribe(
                 to: properties,
-                didSet: { @Sendable [oneShot] _ in
-                    oneShot.fire()
+                didSet: { @Sendable [latch] _ in
+                    latch.takeIfPresent()?()
                 }
             )
-            subscriptions.append((registrar, id))
+            pending.withLock { $0.append((registrar, id)) }
         }
 
-        oneShot.registrations.withLock { $0 = subscriptions }
-        return oneShot
-    }
-}
-
-extension Observation.Tracking._OneShot {
-    /// Idempotent fire: the first caller wins, runs `onChange`, and
-    /// unsubscribes all sibling registrations. Subsequent callers
-    /// see `fired == true` and short-circuit.
-    func fire() {
-        let didFireFirst = fired.withLock { fired -> Bool in
-            if fired {
-                return false
-            }
-            fired = true
-            return true
-        }
-        guard didFireFirst else { return }
-
-        let registrationsCopy = registrations.withLock { $0 }
-        for (registrar, id) in registrationsCopy {
-            registrar.unsubscribe(id)
-        }
-        onChange()
+        return latch
     }
 }
