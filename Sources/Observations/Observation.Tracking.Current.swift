@@ -15,16 +15,18 @@ internal import Kernel_Thread
 extension Observation.Tracking {
     /// Per-thread slot holding the current ``Observation/Tracking/Frame``.
     ///
-    /// Backed by ``_FrameLocal``, a typed wrapper around
-    /// `Kernel.Thread.Local` (POSIX `pthread_key_*` / Windows
-    /// `TlsAlloc`). The wrapper localizes the `Unmanaged`
-    /// retain/release dance inside its setter so the public push/pop
-    /// surface stays free of `unsafe` markers.
+    /// Backed by `Kernel.Thread.Local<Frame>`, the L3 typed thread-local
+    /// primitive that wraps the platform's TLS slot
+    /// (POSIX `pthread_key_*` via ``ISO_9945/Kernel/Thread/Key`` /
+    /// Windows `TlsAlloc` via ``Windows/Kernel/Thread/Index``). The
+    /// kernel-layer wrapper encapsulates the `Unmanaged` retain/release
+    /// dance, so this file's push/pop/currentFrame surface is
+    /// `unsafe`-free.
     ///
     /// One slot is allocated process-wide (lazy init at first
     /// access), shared by all threads. Each thread has its own slot
     /// value — a Frame on Thread A never shows up on Thread B.
-    static let _slot: _FrameLocal = _FrameLocal()
+    static let _slot: Kernel.Thread.Local<Frame> = Kernel.Thread.Local()
 
     /// Returns the current frame on the calling thread, or `nil` if
     /// no `withObservationTracking` body is active.
@@ -50,55 +52,5 @@ extension Observation.Tracking {
             "Observation.Tracking frame popped out of order"
         )
         _slot.value = frame.parent
-    }
-}
-
-extension Observation.Tracking {
-    /// Typed thread-local storage for a class-typed payload.
-    ///
-    /// Wraps `Kernel.Thread.Local` (an untyped raw-pointer slot) with
-    /// generic typing and ARC-managed retain/release. The setter
-    /// releases the previous value (if any) and retains the new one;
-    /// the getter returns an unretained reference to the current
-    /// value.
-    ///
-    /// ## Why this lives here, not in swift-kernel
-    ///
-    /// `Kernel.Thread.Local`'s public `value: UnsafeMutableRawPointer?`
-    /// surface is necessarily unsafe — the platform layer doesn't know
-    /// payload typing. Promoting a typed wrapper to swift-kernel as
-    /// `Kernel.Thread.Local<Payload>` requires renaming the L2 raw
-    /// classes (`ISO_9945.Kernel.Thread.Local`,
-    /// `Windows.Kernel.Thread.Local`) — they share the
-    /// `Kernel.Thread` namespace via typealias chain, so a generic
-    /// `Local<T>` at L3 collides with the untyped `Local` at L2. The
-    /// rename is a multi-package change deferred until additional
-    /// consumers exist; for now this private helper encapsulates the
-    /// unsafe surface for `swift-observations`.
-    @safe
-    final class _FrameLocal: @unchecked Sendable {
-        let _raw: Kernel.Thread.Local
-
-        init() {
-            _raw = Kernel.Thread.Local()
-        }
-
-        var value: Frame? {
-            get {
-                guard let opaque = unsafe _raw.value else { return nil }
-                return unsafe Unmanaged<Frame>.fromOpaque(opaque).takeUnretainedValue()
-            }
-            set {
-                if let oldOpaque = unsafe _raw.value {
-                    unsafe Unmanaged<Frame>.fromOpaque(oldOpaque).release()
-                }
-                if let newValue {
-                    let retained = unsafe Unmanaged.passRetained(newValue).toOpaque()
-                    unsafe (_raw.value = retained)
-                } else {
-                    unsafe (_raw.value = nil)
-                }
-            }
-        }
     }
 }
