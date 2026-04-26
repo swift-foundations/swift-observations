@@ -8,6 +8,8 @@
 //
 // See LICENSE for license information
 //
+// See LICENSE for license information
+//
 // ===----------------------------------------------------------------------===//
 
 internal import Kernel_Thread
@@ -15,58 +17,90 @@ internal import Kernel_Thread
 extension Observation.Tracking {
     /// Per-thread slot holding the current ``Observation/Tracking/Frame``.
     ///
-    /// Backed by `Kernel.Thread.Local` (POSIX `pthread_key_*` /
-    /// Windows `TlsAlloc`). The slot stores a retained
-    /// `Unmanaged<Frame>.toOpaque()` raw pointer; `nil` means no
-    /// frame is active on this thread.
+    /// Backed by ``_FrameLocal``, a typed wrapper around
+    /// `Kernel.Thread.Local` (POSIX `pthread_key_*` / Windows
+    /// `TlsAlloc`). The wrapper localizes the `Unmanaged`
+    /// retain/release dance inside its setter so the public push/pop
+    /// surface stays free of `unsafe` markers.
     ///
     /// One slot is allocated process-wide (lazy init at first
     /// access), shared by all threads. Each thread has its own slot
     /// value — a Frame on Thread A never shows up on Thread B.
-    ///
-    /// `Kernel.Thread.Local` is `@unchecked Sendable` because its
-    /// semantics are per-thread by construction; the kernel TLS
-    /// machinery provides the per-thread isolation. Sharing one slot
-    /// across threads is the intended design.
-    static let _slot: Kernel.Thread.Local = Kernel.Thread.Local()
+    static let _slot: _FrameLocal = _FrameLocal()
 
     /// Returns the current frame on the calling thread, or `nil` if
     /// no `withObservationTracking` body is active.
     static func currentFrame() -> Frame? {
-        guard let raw = unsafe _slot.value else { return nil }
-        return unsafe Unmanaged<Frame>.fromOpaque(raw).takeUnretainedValue()
+        _slot.value
     }
 
     /// Pushes `frame` as the current frame, setting `frame.parent` to
     /// the previous current frame (which may be `nil`). Call
     /// `popFrame(_:)` with the same frame to restore.
-    ///
-    /// Allocates one retain on `frame` so the slot owns a strong
-    /// reference for its lifetime; `popFrame` releases.
     static func pushFrame(_ frame: Frame) {
-        let retained = unsafe Unmanaged.passRetained(frame).toOpaque()
-        unsafe (_slot.value = retained)
+        _slot.value = frame
     }
 
     /// Pops `frame` from the current slot, restoring `frame.parent`.
-    /// Releases the retain installed by `pushFrame`.
     ///
     /// Precondition: `frame` is the current frame on this thread —
     /// nested `withObservationTracking` calls must pop in LIFO order.
     static func popFrame(_ frame: Frame) {
-        guard let raw = unsafe _slot.value else { return }
-        let current = unsafe Unmanaged<Frame>.fromOpaque(raw)
-        unsafe precondition(
-            current.takeUnretainedValue() === frame,
+        guard let current = _slot.value else { return }
+        precondition(
+            current === frame,
             "Observation.Tracking frame popped out of order"
         )
+        _slot.value = frame.parent
+    }
+}
 
-        if let parent = frame.parent {
-            let parentRaw = unsafe Unmanaged.passRetained(parent).toOpaque()
-            unsafe (_slot.value = parentRaw)
-        } else {
-            unsafe (_slot.value = nil)
+extension Observation.Tracking {
+    /// Typed thread-local storage for a class-typed payload.
+    ///
+    /// Wraps `Kernel.Thread.Local` (an untyped raw-pointer slot) with
+    /// generic typing and ARC-managed retain/release. The setter
+    /// releases the previous value (if any) and retains the new one;
+    /// the getter returns an unretained reference to the current
+    /// value.
+    ///
+    /// ## Why this lives here, not in swift-kernel
+    ///
+    /// `Kernel.Thread.Local`'s public `value: UnsafeMutableRawPointer?`
+    /// surface is necessarily unsafe — the platform layer doesn't
+    /// know payload typing. A typed wrapper localizes the `Unmanaged`
+    /// dance to one place, but the cleanest naming
+    /// (`Kernel.Thread.Local<T>`) collides with the existing untyped
+    /// `Kernel.Thread.Local` typealias at `swift-kernel`. Promoting
+    /// this to an ecosystem primitive requires renaming the existing
+    /// untyped slot (e.g., to `Kernel.Thread.Local.Raw`) — a
+    /// cross-package change deferred until other consumers exist.
+    /// For now, this private helper encapsulates the unsafe surface
+    /// for `swift-observations`.
+    @safe
+    final class _FrameLocal: @unchecked Sendable {
+        let _raw: Kernel.Thread.Local
+
+        init() {
+            _raw = Kernel.Thread.Local()
         }
-        unsafe current.release()
+
+        var value: Frame? {
+            get {
+                guard let opaque = unsafe _raw.value else { return nil }
+                return unsafe Unmanaged<Frame>.fromOpaque(opaque).takeUnretainedValue()
+            }
+            set {
+                if let oldOpaque = unsafe _raw.value {
+                    unsafe Unmanaged<Frame>.fromOpaque(oldOpaque).release()
+                }
+                if let newValue {
+                    let retained = unsafe Unmanaged.passRetained(newValue).toOpaque()
+                    unsafe (_raw.value = retained)
+                } else {
+                    unsafe (_raw.value = nil)
+                }
+            }
+        }
     }
 }
