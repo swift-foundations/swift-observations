@@ -1,6 +1,7 @@
 // swift-tools-version: 6.3.1
 
 import PackageDescription
+import CompilerPluginSupport
 
 let package = Package(
     name: "swift-observations",
@@ -23,6 +24,7 @@ let package = Package(
         .package(path: "../../swift-primitives/swift-reference-primitives"),
         .package(path: "../../swift-primitives/swift-ownership-primitives"),
         .package(path: "../../swift-primitives/swift-tagged-primitives"),
+        .package(url: "https://github.com/swiftlang/swift-syntax.git", "602.0.0"..<"603.0.0"),
     ],
     targets: [
         .target(
@@ -33,11 +35,27 @@ let package = Package(
                 .product(name: "Reference Primitives", package: "swift-reference-primitives"),
                 .product(name: "Ownership Primitives", package: "swift-ownership-primitives"),
                 .product(name: "Tagged Primitives", package: "swift-tagged-primitives"),
+                "Observations Macros",
+            ]
+        ),
+        .macro(
+            name: "Observations Macros",
+            dependencies: [
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
+                .product(name: "SwiftCompilerPlugin", package: "swift-syntax"),
             ]
         ),
         .testTarget(
             name: "Observations Tests",
             dependencies: ["Observations"]
+        ),
+        .testTarget(
+            name: "Observations Macros Tests",
+            dependencies: [
+                "Observations Macros",
+                .product(name: "SwiftSyntaxMacrosTestSupport", package: "swift-syntax"),
+            ]
         ),
     ],
     swiftLanguageModes: [.v6]
