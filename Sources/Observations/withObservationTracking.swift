@@ -90,7 +90,7 @@ extension Observation.Tracking {
     /// Subscribes a one-shot didSet handler for every recorded access.
     ///
     /// The first didSet to fire wins via
-    /// ``Ownership/Latch/takeIfPresent()`` — its CAS atomically
+    /// ``Ownership/Latch/take()`` — its CAS atomically
     /// transitions the latch from `.full` to `.taken`, runs the
     /// cleanup closure (which unsubscribes every recorded
     /// registration and invokes `onChange`), and disarms all sibling
@@ -129,7 +129,7 @@ extension Observation.Tracking {
             let id = registrar.subscribe(
                 to: properties,
                 didSet: { @Sendable [latch] _ in
-                    latch.takeIfPresent()?()
+                    latch.take()?()
                 }
             )
             pending.withLock { $0.append((registrar, id)) }
