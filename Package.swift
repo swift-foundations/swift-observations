@@ -19,11 +19,11 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(path: "../swift-kernel"),
-        .package(path: "../../swift-primitives/swift-observation-primitives"),
-        .package(path: "../../swift-primitives/swift-reference-primitives"),
-        .package(path: "../../swift-primitives/swift-ownership-primitives"),
-        .package(path: "../../swift-primitives/swift-tagged-primitives"),
+        .package(url: "https://github.com/swift-foundations/swift-kernel.git", branch: "main"),
+        .package(url: "https://github.com/swift-primitives/swift-observation-primitives.git", branch: "main"),
+        .package(url: "https://github.com/swift-primitives/swift-reference-primitives.git", branch: "main"),
+        .package(url: "https://github.com/swift-primitives/swift-ownership-primitives.git", branch: "main"),
+        .package(url: "https://github.com/swift-primitives/swift-tagged-primitives.git", branch: "main"),
         .package(url: "https://github.com/swiftlang/swift-syntax.git", "602.0.0"..<"603.0.0"),
     ],
     targets: [
