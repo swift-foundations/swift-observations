@@ -1,5 +1,5 @@
 # .github/metadata.yaml
-description: "Observation tracking for Swift value types — an @Observable macro and withObservationTracking for structs, ~Copyable structs, classes, and actors."
+description: "An @Observable macro and observation tracking for structs, ~Copyable structs, classes, and actors in Swift."
 topics:
   - foundations
   - observation
