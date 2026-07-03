@@ -20,210 +20,210 @@ import Testing
 /// in declaration order (`x` → 0, `y` → 1).
 @Observable
 struct Counter {
-    var x: Int = 0
-    var y: Int = 0
+  var x: Int = 0
+  var y: Int = 0
 }
 
 @Suite("Observation.Tracking")
 struct TrackingTests {
-    @Suite struct ContextCapture {}
-    @Suite struct WithObservationTracking {}
-    @Suite struct Token {}
+  @Suite struct ContextCapture {}
+  @Suite struct WithObservationTracking {}
+  @Suite struct Token {}
 }
 
 extension TrackingTests.ContextCapture {
 
-    @Test
-    func `access outside withObservationTracking is a no-op`() {
-        // Without an active frame, access(_:_:) does nothing — no
-        // crash, no recorded state.
-        let counter = Counter()
-        Observation.Tracking.access(counter._$registrar, .init(0))
-        // No assertion needed; the absence of a trap is the property.
-    }
+  @Test
+  func `access outside withObservationTracking is a no-op`() {
+    // Without an active frame, access(_:_:) does nothing — no
+    // crash, no recorded state.
+    let counter = Counter()
+    Observation.Tracking.access(counter._$registrar, .init(0))
+    // No assertion needed; the absence of a trap is the property.
+  }
 
-    @Test
-    func `currentFrame is nil outside withObservationTracking`() {
-        #expect(Observation.Tracking.currentFrame() == nil)
-    }
+  @Test
+  func `currentFrame is nil outside withObservationTracking`() {
+    #expect(Observation.Tracking.currentFrame() == nil)
+  }
 }
 
 extension TrackingTests.WithObservationTracking {
 
-    @Test
-    func `onChange fires when a tracked property mutates`() {
-        var counter = Counter()
-        let fired = LockedBox(false)
+  @Test
+  func `onChange fires when a tracked property mutates`() {
+    var counter = Counter()
+    let fired = LockedBox(false)
 
-        let value = withObservationTracking {
-            counter.x
-        } onChange: {
-            fired.withLock { $0 = true }
-        }
-        #expect(value == 0)
-        #expect(fired.withLock { $0 } == false)  // Not fired yet — no mutation.
+    let value = withObservationTracking {
+      counter.x
+    } onChange: {
+      fired.withLock { $0 = true }
+    }
+    #expect(value == 0)
+    #expect(fired.withLock { $0 } == false)  // Not fired yet — no mutation.
 
-        counter.x = 1
-        #expect(fired.withLock { $0 } == true)
+    counter.x = 1
+    #expect(fired.withLock { $0 } == true)
+  }
+
+  @Test
+  func `onChange does NOT fire for untracked property mutation`() {
+    var counter = Counter()
+    let fired = LockedBox(false)
+
+    _ = withObservationTracking {
+      counter.x  // Track only x.
+    } onChange: {
+      fired.withLock { $0 = true }
     }
 
-    @Test
-    func `onChange does NOT fire for untracked property mutation`() {
-        var counter = Counter()
-        let fired = LockedBox(false)
+    counter.y = 1  // Mutate y — not tracked.
+    #expect(fired.withLock { $0 } == false)
+  }
 
-        _ = withObservationTracking {
-            counter.x  // Track only x.
-        } onChange: {
-            fired.withLock { $0 = true }
-        }
+  @Test
+  func `onChange fires once even with multiple tracked mutations`() {
+    var counter = Counter()
+    let fireCount = LockedBox(0)
 
-        counter.y = 1  // Mutate y — not tracked.
-        #expect(fired.withLock { $0 } == false)
+    _ = withObservationTracking {
+      _ = counter.x
+      _ = counter.y
+    } onChange: {
+      fireCount.withLock { $0 += 1 }
     }
 
-    @Test
-    func `onChange fires once even with multiple tracked mutations`() {
-        var counter = Counter()
-        let fireCount = LockedBox(0)
+    counter.x = 1
+    counter.y = 2
+    counter.x = 3
+    #expect(fireCount.withLock { $0 } == 1)
+  }
 
-        _ = withObservationTracking {
-            _ = counter.x
-            _ = counter.y
-        } onChange: {
-            fireCount.withLock { $0 += 1 }
-        }
+  @Test
+  func `repeated reads of same property dedupe to one subscription`() {
+    var counter = Counter()
+    let fireCount = LockedBox(0)
 
-        counter.x = 1
-        counter.y = 2
-        counter.x = 3
-        #expect(fireCount.withLock { $0 } == 1)
+    _ = withObservationTracking {
+      _ = counter.x
+      _ = counter.x
+      _ = counter.x
+    } onChange: {
+      fireCount.withLock { $0 += 1 }
     }
 
-    @Test
-    func `repeated reads of same property dedupe to one subscription`() {
-        var counter = Counter()
-        let fireCount = LockedBox(0)
+    counter.x = 99
+    #expect(fireCount.withLock { $0 } == 1)
+  }
 
-        _ = withObservationTracking {
-            _ = counter.x
-            _ = counter.x
-            _ = counter.x
-        } onChange: {
-            fireCount.withLock { $0 += 1 }
-        }
+  @Test
+  func `body return value is propagated`() {
+    var counter = Counter()
+    counter.x = 42
 
-        counter.x = 99
-        #expect(fireCount.withLock { $0 } == 1)
+    let result = withObservationTracking {
+      counter.x * 2
+    } onChange: {
+      // unused
+    }
+    #expect(result == 84)
+  }
+
+  @Test
+  func `nested withObservationTracking — only inner records`() {
+    var counter = Counter()
+    let outerFired = LockedBox(false)
+    let innerFired = LockedBox(false)
+
+    _ = withObservationTracking {
+      // Outer body — but the inner withObservationTracking will
+      // shadow this frame for any access inside its body.
+      return withObservationTracking {
+        counter.x  // Recorded against the inner frame.
+      } onChange: {
+        innerFired.withLock { $0 = true }
+      }
+    } onChange: {
+      outerFired.withLock { $0 = true }
     }
 
-    @Test
-    func `body return value is propagated`() {
-        var counter = Counter()
-        counter.x = 42
+    counter.x = 1
+    #expect(innerFired.withLock { $0 } == true)
+    #expect(outerFired.withLock { $0 } == false)  // Outer recorded nothing.
+  }
 
-        let result = withObservationTracking {
-            counter.x * 2
-        } onChange: {
-            // unused
-        }
-        #expect(result == 84)
+  @Test
+  func `multiple registrars in one body`() {
+    let a = Counter()
+    var b = Counter()
+    let fired = LockedBox(false)
+
+    _ = withObservationTracking {
+      _ = a.x
+      _ = b.y
+    } onChange: {
+      fired.withLock { $0 = true }
     }
 
-    @Test
-    func `nested withObservationTracking — only inner records`() {
-        var counter = Counter()
-        let outerFired = LockedBox(false)
-        let innerFired = LockedBox(false)
-
-        _ = withObservationTracking {
-            // Outer body — but the inner withObservationTracking will
-            // shadow this frame for any access inside its body.
-            return withObservationTracking {
-                counter.x  // Recorded against the inner frame.
-            } onChange: {
-                innerFired.withLock { $0 = true }
-            }
-        } onChange: {
-            outerFired.withLock { $0 = true }
-        }
-
-        counter.x = 1
-        #expect(innerFired.withLock { $0 } == true)
-        #expect(outerFired.withLock { $0 } == false)  // Outer recorded nothing.
-    }
-
-    @Test
-    func `multiple registrars in one body`() {
-        let a = Counter()
-        var b = Counter()
-        let fired = LockedBox(false)
-
-        _ = withObservationTracking {
-            _ = a.x
-            _ = b.y
-        } onChange: {
-            fired.withLock { $0 = true }
-        }
-
-        b.y = 1  // Mutating either should fire.
-        #expect(fired.withLock { $0 } == true)
-    }
+    b.y = 1  // Mutating either should fire.
+    #expect(fired.withLock { $0 } == true)
+  }
 }
 
 extension TrackingTests.Token {
 
-    @Test
-    func `Token unsubscribes on deinit`() {
-        let registrar = Observation.Registrar()
-        let fireCount = LockedBox(0)
+  @Test
+  func `Token unsubscribes on deinit`() {
+    let registrar = Observation.Registrar()
+    let fireCount = LockedBox(0)
 
-        do {
-            let id = registrar.subscribe(
-                to: [.init(0)],
-                didSet: { _ in fireCount.withLock { $0 += 1 } }
-            )
-            _ = Observation.Subscription.Token(registrar, id)
-        }
-        // Token deinit'd; subscription removed.
-        registrar.didSet(.init(0))
-        #expect(fireCount.withLock { $0 } == 0)
+    do {
+      let id = registrar.subscribe(
+        to: [.init(0)],
+        didSet: { _ in fireCount.withLock { $0 += 1 } }
+      )
+      _ = Observation.Subscription.Token(registrar, id)
     }
+    // Token deinit'd; subscription removed.
+    registrar.didSet(.init(0))
+    #expect(fireCount.withLock { $0 } == 0)
+  }
 
-    @Test
-    func `Token detach disarms the deinit`() {
-        let registrar = Observation.Registrar()
-        let fireCount = LockedBox(0)
+  @Test
+  func `Token detach disarms the deinit`() {
+    let registrar = Observation.Registrar()
+    let fireCount = LockedBox(0)
 
-        let detached: (Observation.Registrar, Observation.Subscription.ID)?
-        do {
-            let id = registrar.subscribe(
-                to: [.init(0)],
-                didSet: { _ in fireCount.withLock { $0 += 1 } }
-            )
-            var token = Observation.Subscription.Token(registrar, id)
-            detached = token.detach()
-        }
-        // Token deinit'd as a no-op (detached); subscription is still live.
-        registrar.didSet(.init(0))
-        #expect(fireCount.withLock { $0 } == 1)
-
-        // Cleanup: caller is now responsible for the detached subscription.
-        if let (r, id) = detached { r.unsubscribe(id) }
+    let detached: (Observation.Registrar, Observation.Subscription.ID)?
+    do {
+      let id = registrar.subscribe(
+        to: [.init(0)],
+        didSet: { _ in fireCount.withLock { $0 += 1 } }
+      )
+      var token = Observation.Subscription.Token(registrar, id)
+      detached = token.detach()
     }
+    // Token deinit'd as a no-op (detached); subscription is still live.
+    registrar.didSet(.init(0))
+    #expect(fireCount.withLock { $0 } == 1)
 
-    @Test
-    func `Token detach twice returns nil the second time`() {
-        let registrar = Observation.Registrar()
-        let id = registrar.subscribe(to: [.init(0)])
-        var token = Observation.Subscription.Token(registrar, id)
+    // Cleanup: caller is now responsible for the detached subscription.
+    if let (r, id) = detached { r.unsubscribe(id) }
+  }
 
-        let first = token.detach()
-        let second = token.detach()
-        #expect(first != nil)
-        #expect(second == nil)
+  @Test
+  func `Token detach twice returns nil the second time`() {
+    let registrar = Observation.Registrar()
+    let id = registrar.subscribe(to: [.init(0)])
+    var token = Observation.Subscription.Token(registrar, id)
 
-        // Cleanup the first detach.
-        if let (r, id) = first { r.unsubscribe(id) }
-    }
+    let first = token.detach()
+    let second = token.detach()
+    #expect(first != nil)
+    #expect(second == nil)
+
+    // Cleanup the first detach.
+    if let (r, id) = first { r.unsubscribe(id) }
+  }
 }

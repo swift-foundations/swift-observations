@@ -15,8 +15,8 @@ import SwiftSyntaxMacros
 
 @main
 struct ObservationsPlugin: CompilerPlugin {
-    let providingMacros: [any Macro.Type] = [
-        ObservableMacro.self,
-        ObservationTrackedMacro.self,
-    ]
+  let providingMacros: [Macro.Type] = [
+    ObservableMacro.self,
+    ObservationTrackedMacro.self,
+  ]
 }

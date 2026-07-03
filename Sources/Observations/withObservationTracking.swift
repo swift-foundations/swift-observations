@@ -70,71 +70,73 @@ internal import Synchronization
 ///     property mutates after `apply` returns.
 /// - Returns: The result of `apply()`.
 public func withObservationTracking<R>(
-    _ apply: () -> R,
-    onChange: @escaping @Sendable () -> Void
+  _ apply: () -> R,
+  onChange: @escaping @Sendable () -> Void
 ) -> R {
-    let frame = Observation.Tracking.Frame(parent: Observation.Tracking.currentFrame())
-    Observation.Tracking.pushFrame(frame)
-    let result = apply()
-    Observation.Tracking.popFrame(frame)
+  let frame = Observation.Tracking.Frame(parent: Observation.Tracking.currentFrame())
+  Observation.Tracking.pushFrame(frame)
+  let result = apply()
+  Observation.Tracking.popFrame(frame)
 
-    let accesses = frame.accesses
-    guard !accesses.isEmpty else { return result }
+  let accesses = frame.accesses
+  guard !accesses.isEmpty else { return result }
 
-    Observation.Tracking._installOneShot(accesses: accesses, onChange: onChange)
+  Observation.Tracking._installOneShot(accesses: accesses, onChange: onChange)
 
-    return result
+  return result
 }
 
 extension Observation.Tracking {
-    /// Subscribes a one-shot didSet handler for every recorded access.
-    ///
-    /// The first didSet to fire wins via
-    /// ``Ownership/Latch/take()`` — its CAS atomically
-    /// transitions the latch from `.full` to `.taken`, runs the
-    /// cleanup closure (which unsubscribes every recorded
-    /// registration and invokes `onChange`), and disarms all sibling
-    /// fires. Subsequent fires see `.taken` and short-circuit to
-    /// `nil`.
-    ///
-    /// The latch and its captured cleanup closure are held alive by
-    /// the per-subscription `[latch]` captures; once all
-    /// subscriptions are unsubscribed (by the winning fire), the
-    /// captures release and the latch deinits.
-    @discardableResult
-    static func _installOneShot(
-        accesses: [ObjectIdentifier: (registrar: Observation.Registrar, properties: Set<Observation.Property.ID>)],
-        onChange: @escaping @Sendable () -> Void
-    ) -> Ownership.Latch<@Sendable () -> Void> {
-        // Subscriptions are accumulated as the loop registers them;
-        // the cleanup closure reads the list at fire-time. A fire
-        // that races the registration loop sees a partial list and
-        // unsubscribes only the registrations recorded so far —
-        // matching the existing `Mutex<[Registration]>` behavior.
-        let pending: Mutex<[(Observation.Registrar, Observation.Subscription.ID)]> = Mutex([])
+  /// Subscribes a one-shot didSet handler for every recorded access.
+  ///
+  /// The first didSet to fire wins via
+  /// ``Ownership/Latch/take()`` — its CAS atomically
+  /// transitions the latch from `.full` to `.taken`, runs the
+  /// cleanup closure (which unsubscribes every recorded
+  /// registration and invokes `onChange`), and disarms all sibling
+  /// fires. Subsequent fires see `.taken` and short-circuit to
+  /// `nil`.
+  ///
+  /// The latch and its captured cleanup closure are held alive by
+  /// the per-subscription `[latch]` captures; once all
+  /// subscriptions are unsubscribed (by the winning fire), the
+  /// captures release and the latch deinits.
+  @discardableResult
+  static func _installOneShot(
+    accesses: [ObjectIdentifier: (
+      registrar: Observation.Registrar, properties: Set<Observation.Property.ID>
+    )],
+    onChange: @escaping @Sendable () -> Void
+  ) -> Ownership.Latch<@Sendable () -> Void> {
+    // Subscriptions are accumulated as the loop registers them;
+    // the cleanup closure reads the list at fire-time. A fire
+    // that races the registration loop sees a partial list and
+    // unsubscribes only the registrations recorded so far —
+    // matching the existing `Mutex<[Registration]>` behavior.
+    let pending: Mutex<[(Observation.Registrar, Observation.Subscription.ID)]> = Mutex([])
 
-        let cleanup: @Sendable () -> Void = {
-            let ids = pending.withLock { $0 }
-            for (registrar, id) in ids {
-                registrar.unsubscribe(id)
-            }
-            onChange()
-        }
-
-        let latch = Ownership.Latch<@Sendable () -> Void>(cleanup)
-
-        for (_, value) in accesses {
-            let registrar = value.registrar
-            let properties = value.properties
-            let id = registrar.subscribe(
-                to: properties,
-                didSet: { @Sendable [latch] _ in
-                    latch.take()?()
-                }
-            )
-            pending.withLock { $0.append((registrar, id)) }
-        }
-
-        return latch
+    let cleanup: @Sendable () -> Void = {
+      let ids = pending.withLock { $0 }
+      for (registrar, id) in ids {
+        registrar.unsubscribe(id)
+      }
+      onChange()
     }
+
+    let latch = Ownership.Latch<@Sendable () -> Void>(cleanup)
+
+    for (_, value) in accesses {
+      let registrar = value.registrar
+      let properties = value.properties
+      let id = registrar.subscribe(
+        to: properties,
+        didSet: { @Sendable [latch] _ in
+          latch.take()?()
+        }
+      )
+      pending.withLock { $0.append((registrar, id)) }
+    }
+
+    return latch
+  }
 }
