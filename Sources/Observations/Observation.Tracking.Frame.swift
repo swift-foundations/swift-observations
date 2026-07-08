@@ -53,17 +53,19 @@ extension Observation.Tracking {
     init(parent: Frame?) {
       self.parent = parent
     }
+  }
+}
 
-    /// Records a property read on this frame.
-    ///
-    /// `O(1)` amortized: dictionary lookup + Set insert.
-    func record(_ registrar: Observation.Registrar, _ propertyID: Observation.Property.ID) {
-      let key = registrar.id
-      if accesses[key] != nil {
-        accesses[key]!.properties.insert(propertyID)
-      } else {
-        accesses[key] = (registrar, [propertyID])
-      }
+extension Observation.Tracking.Frame {
+  /// Records a property read on this frame.
+  ///
+  /// `O(1)` amortized: dictionary lookup + Set insert.
+  func record(_ registrar: Observation.Registrar, _ propertyID: Observation.Property.ID) {
+    let key = registrar.id
+    if accesses[key] != nil {
+      accesses[key]!.properties.insert(propertyID)
+    } else {
+      accesses[key] = (registrar, [propertyID])
     }
   }
 }
