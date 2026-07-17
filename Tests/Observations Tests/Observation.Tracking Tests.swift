@@ -25,11 +25,11 @@ struct Counter {
 }
 
 extension Observation.Tracking {
-  @Suite("Observation.Tracking")
+  @Suite
   struct Test {
     @Suite struct ContextCapture {}
-    @Suite struct WithObservationTracking {}
-    @Suite struct Token {}
+    @Suite struct `With Observation Tracking` {}
+    @Suite struct `Token` {}
   }
 }
 
