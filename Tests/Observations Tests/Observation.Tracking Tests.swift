@@ -28,7 +28,7 @@ extension Observation.Tracking {
   @Suite
   struct Test {
     @Suite struct ContextCapture {}
-    @Suite struct `With Observation Tracking` {}
+    @Suite struct WithObservationTracking {}
     @Suite struct `Token` {}
   }
 }
