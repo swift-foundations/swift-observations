@@ -26,7 +26,12 @@ extension Observation.Tracking {
   /// One slot is allocated process-wide (lazy init at first
   /// access), shared by all threads. Each thread has its own slot
   /// value — a Frame on Thread A never shows up on Thread B.
-  static let _slot: Kernel.Thread.Local<Frame> = Kernel.Thread.Local()
+  // REASON: process-wide TLS key creation for the observation tracking slot is an
+  // unrecoverable-environment failure (POSIX `pthread_key_create` reporting
+  // `EAGAIN`/`ENOMEM`, or the Windows `TlsAlloc` equivalent), not a recoverable
+  // error path — restructuring to lazy/failable access would push a nonexistent
+  // failure mode onto every read/write call site.
+  static let _slot: Kernel.Thread.Local<Frame> = try! Kernel.Thread.Local()
 
   /// Returns the current frame on the calling thread, or `nil` if
   /// no `withObservationTracking` body is active.
