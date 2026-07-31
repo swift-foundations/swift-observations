@@ -31,7 +31,7 @@ extension Observation.Tracking {
   /// One slot is allocated process-wide (lazy init at first
   /// access), shared by all threads. Each thread has its own slot
   /// value — a Frame on Thread A never shows up on Thread B.
-  static let _slot: Kernel.Thread.Local<Frame> = try! Kernel.Thread.Local()
+  static let _slot: Kernel.Thread.Local<Frame> = try! Kernel.Thread.Local()  // swiftlint:disable:this force_try
 
   /// Returns the current frame on the calling thread, or `nil` if
   /// no `withObservationTracking` body is active.
