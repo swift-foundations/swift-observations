@@ -27,13 +27,13 @@ struct Counter {
 extension Observation.Tracking {
   @Suite
   struct Test {
-    @Suite struct ContextCapture {}
-    @Suite struct WithObservationTracking {}
+    @Suite struct `Context Capture` {}
+    @Suite struct `With Observation Tracking` {}
     @Suite struct `Token` {}
   }
 }
 
-extension Observation.Tracking.Test.ContextCapture {
+extension Observation.Tracking.Test.`Context Capture` {
 
   @Test
   func `access outside withObservationTracking is a no-op`() {
@@ -50,7 +50,7 @@ extension Observation.Tracking.Test.ContextCapture {
   }
 }
 
-extension Observation.Tracking.Test.WithObservationTracking {
+extension Observation.Tracking.Test.`With Observation Tracking` {
 
   @Test
   func `onChange fires when a tracked property mutates`() {
